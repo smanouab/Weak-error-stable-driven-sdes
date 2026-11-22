@@ -1,0 +1,392 @@
+---
+title: "Weak convergence of the Euler scheme for stable-driven SDEs: numerical illustration"
+subtitle: "Three experiments: stable OU (exact), multiplicative SDE (coupled Monte Carlo), Cauchy OU (closed form)"
+author: "Solym MANOU-ABI"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+  pdf_document:
+    number_sections: true
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width = 8, fig.height = 4.5,
+                      cache = TRUE, message = FALSE, warning = FALSE)
+if (!requireNamespace("stabledist", quietly = TRUE)) install.packages("stabledist")
+library(stabledist)
+set.seed(2026)
+```
+
+Throughout, stable laws are written in the **S1 parametrisation**
+(Samorodnitsky--Taqqu), `pm = 1` in `stabledist`: $S_\alpha(\gamma,\beta,\delta)$.
+For $\alpha \neq 1$, the law $S_\alpha(\gamma,\beta,0)$ is **strictly stable**
+(and centred when $\alpha\in(1,2)$); for $\alpha = 1$ this holds only for
+$\beta = 0$ (Cauchy law), which is the case used in the last section. Consequently, $Z_{t+h}-Z_t \overset{d}{=} h^{1/\alpha} Z_1$, and for
+$a_j>0$ and i.i.d. $\xi_j\sim S_\alpha(\gamma,\beta,0)$,
+$$\textstyle\sum_j a_j \xi_j \sim S_\alpha\big(\gamma(\sum_j a_j^\alpha)^{1/\alpha},\beta,0\big).$$
+
+> **Warning about the default parametrisation.** `rstable()` uses `pm = 0`
+> by default. In that parametrisation, $\beta\neq0$ and $\delta=0$ do **not**
+> give a strictly stable law. The scaling $h^{1/\alpha}Z_1$ is then wrong: it
+> creates a spurious drift of order $h^{1/\alpha}-h$ per step. All functions
+> below therefore force `pm = 1` and `delta = 0`.
+
+# Simulation of the stable process
+
+
+```{r stable-process}
+## n i.i.d. strictly alpha-stable variables S_alpha(gamma, beta, 0), S1 parametrisation
+rstable_strict <- function(n, alpha, beta, gamma = 1) {
+  stabledist::rstable(n, alpha = alpha, beta = beta, gamma = gamma, delta = 0, pm = 1)
+}
+
+## Path of Z on the grid t_k = k * t / n.steps
+simul_proc_stable <- function(n.steps, alpha, beta, gamma = 1, t = 1) {
+  h  <- t / n.steps
+  dZ <- rstable_strict(n.steps, alpha, beta, gamma) * h^(1 / alpha)
+  data.frame(time = (0:n.steps) * h, Z = c(0, cumsum(dZ)))
+}
+```
+
+
+
+
+**Checking the scaling.** The rescaled increments $h^{-1/\alpha}(Z_{t+h}-Z_t)$
+must have the law of $Z_1$. We compare empirical quantiles with the exact
+quantiles given by `qstable`.
+
+```{r check-scaling}
+alpha <- 1.5; beta <- 0.8; n.steps <- 2^12
+path  <- simul_proc_stable(n.steps, alpha, beta)
+incr  <- diff(path$Z) * n.steps^(1 / alpha)          # h = 1 / n.steps
+p     <- c(0.05, 0.25, 0.5, 0.75, 0.95)
+round(rbind(empirical = quantile(incr, p),
+            exact     = qstable(p, alpha, beta, gamma = 1, delta = 0, pm = 1)), 3)
+```
+
+**Sample paths.** We show three stability indices; dashed lines are skewed
+paths ($\beta = 0.8$).
+
+```{r stable-paths, fig.height = 4}
+alphas <- c(1.2, 1.5, 1.8); cols <- c("firebrick", "steelblue", "darkgreen")
+paths  <- lapply(alphas, function(a) simul_proc_stable(1000, a, beta = 0))
+pathsb <- lapply(alphas, function(a) simul_proc_stable(1000, a, beta = 0.8))
+yl     <- range(unlist(lapply(c(paths, pathsb), `[[`, "Z")))
+plot(NA, xlim = c(0, 1), ylim = yl, xlab = "t", ylab = expression(Z[t]),
+     main = "Strictly stable paths")
+for (i in seq_along(alphas)) {
+  lines(paths[[i]]$time,  paths[[i]]$Z,  col = cols[i])
+  lines(pathsb[[i]]$time, pathsb[[i]]$Z, col = cols[i], lty = 2)
+}
+legend("topleft", bty = "n", lwd = 1, col = cols,
+       legend = paste0("alpha = ", alphas))
+```
+
+# A stable Ornstein--Uhlenbeck SDE
+
+We consider
+$$dX_t = \theta(\lambda - X_t)\,dt + \rho\,dZ_t,\qquad X_0 = x_0,$$
+and its Euler scheme
+$X^N_{t_{k+1}} = X^N_{t_k} + \theta(\lambda - X^N_{t_k})h + \rho\,\Delta Z_k$.
+
+```{r ou-euler}
+## Euler scheme for the stable OU process; returns the path on the grid
+simuEDSX <- function(alpha, beta, gamma, t1, N, x0, theta, lambda, rho) {
+  h  <- t1 / N
+  dZ <- rstable_strict(N, alpha, beta, gamma) * h^(1 / alpha)
+  X  <- numeric(N + 1); X[1] <- x0
+  for (k in 1:N) X[k + 1] <- X[k] + theta * (lambda - X[k]) * h + rho * dZ[k]
+  data.frame(time = (0:N) * h, X = X)
+}
+
+par.ou <- list(alpha = 1.6, beta = 0, gamma = 1, t1 = 1, x0 = 1,
+               theta = 0.3, lambda = 1.2, rho = 1)
+ou <- do.call(simuEDSX, c(par.ou, N = 500))
+plot(ou$time, ou$X, type = "s", xlab = "t", ylab = expression(X[t]),
+     main = "Euler path of the stable OU process (alpha = 1.6)")
+abline(h = par.ou$lambda, lty = 3)
+```
+
+**Law of $X_T$.** A histogram of the values of *one* path mixes dependent
+values taken at different times, so it does not estimate any marginal law. The
+relevant object is the law of $X_T$ across independent paths. For the OU
+process this law is known in closed form:
+$$X_T \sim S_\alpha\Big(\gamma\rho\Big(\tfrac{1-e^{-\alpha\theta T}}{\alpha\theta}\Big)^{1/\alpha},\ \beta,\ \lambda + (x_0-\lambda)e^{-\theta T}\Big).$$
+
+```{r ou-law}
+law_exact <- function(alpha, beta, gamma, t1, x0, theta, lambda, rho) {
+  list(scale = gamma * rho * ((1 - exp(-alpha * theta * t1)) / (alpha * theta))^(1 / alpha),
+       loc   = lambda + (x0 - lambda) * exp(-theta * t1))
+}
+
+## Vectorised over M paths: terminal values X_T^N only
+euler_terminal_ou <- function(M, N, alpha, beta, gamma, t1, x0, theta, lambda, rho) {
+  h <- t1 / N; X <- rep(x0, M)
+  for (k in 1:N)
+    X <- X + theta * (lambda - X) * h + rho * rstable_strict(M, alpha, beta, gamma) * h^(1 / alpha)
+  X
+}
+
+XT <- do.call(euler_terminal_ou, c(list(M = 2e4, N = 200), par.ou))
+le <- do.call(law_exact, par.ou)
+xs <- seq(le$loc - 8, le$loc + 8, length.out = 400)
+hist(XT[abs(XT - le$loc) < 8], breaks = 80, prob = TRUE, col = "grey90",
+     border = "white", main = "Law of X_T: Euler (histogram) vs exact density",
+     xlab = expression(X[T]))
+lines(xs, dstable(xs, par.ou$alpha, par.ou$beta, gamma = le$scale,
+                  delta = le$loc, pm = 1), col = "red", lwd = 2)
+```
+
+The histogram is restricted to $|x-\mathrm{loc}|<8$ because of the heavy
+tails; the density is normalised on $\mathbb R$, so the two curves agree up to
+the small mass outside the window.
+
+# Weak error: exact benchmark without Monte Carlo
+
+For the OU process, the Euler terminal value is also exactly stable. With
+$q = 1-\theta h > 0$,
+$$X^N_T = \lambda + (x_0-\lambda)q^N + \rho\sum_{k=0}^{N-1} q^{N-1-k}\Delta Z_k
+\sim S_\alpha\Big(\gamma\rho h^{1/\alpha}\Big(\textstyle\sum_{j=0}^{N-1}q^{\alpha j}\Big)^{1/\alpha},\ \beta,\ \lambda+(x_0-\lambda)q^N\Big).$$
+Both $\mathbb E[g(X_T)]$ and $\mathbb E[g(X^N_T)]$ can therefore be computed
+**deterministically**, with no Monte Carlo noise:
+
+* for $g(x)=\cos x$ and $g(x)=\sin x$, through the characteristic function
+  $\mathbb E\,e^{iX} = \exp\big(i\delta - \gamma^\alpha(1-i\beta\tan\tfrac{\pi\alpha}{2})\big)$;
+* for $g(x)=e^{-x^2}$, by numerical integration against `dstable`.
+
+```{r exact-weak-error}
+law_euler <- function(N, alpha, beta, gamma, t1, x0, theta, lambda, rho) {
+  h <- t1 / N; q <- 1 - theta * h
+  stopifnot(q > 0)
+  list(scale = gamma * rho * h^(1 / alpha) * sum(q^(alpha * (0:(N - 1))))^(1 / alpha),
+       loc   = lambda + (x0 - lambda) * q^N)
+}
+
+## E[exp(iX)] for X ~ S_alpha(scale, beta, loc), S1, alpha != 1
+charf1 <- function(alpha, beta, scale, loc)
+  exp(1i * loc - scale^alpha * (1 - 1i * beta * tan(pi * alpha / 2)))
+
+E_g <- function(g, law, alpha, beta) {
+  switch(g,
+    cos   = Re(charf1(alpha, beta, law$scale, law$loc)),
+    sin   = Im(charf1(alpha, beta, law$scale, law$loc)),
+    gauss = integrate(function(x) exp(-x^2) * dstable(x, alpha, beta, gamma = law$scale,
+                                                      delta = law$loc, pm = 1),
+                      lower = -10, upper = 10, subdivisions = 2000L,
+                      rel.tol = 1e-10)$value)
+}
+
+exact_weak_errors <- function(par, Ns, tests = c("cos", "sin", "gauss")) {
+  le <- do.call(law_exact, par)
+  out <- expand.grid(N = Ns, g = tests, stringsAsFactors = FALSE)
+  out$h <- par$t1 / out$N
+  out$error <- mapply(function(N, g) {
+    ln <- do.call(law_euler, c(list(N = N), par))
+    abs(E_g(g, ln, par$alpha, par$beta) - E_g(g, le, par$alpha, par$beta))
+  }, out$N, out$g)
+  out
+}
+
+Ns  <- 2^(3:9)
+res <- do.call(rbind, lapply(c(1.2, 1.5, 1.8), function(a)
+  cbind(alpha = a, exact_weak_errors(modifyList(par.ou, list(alpha = a, beta = 0.5)), Ns))))
+
+## Estimated orders: least-squares slope of log(error) against log(h)
+fit_order <- function(d, y) unname(coef(lm(log(abs(d[[y]])) ~ log(d$h)))[2])
+slopes <- do.call(rbind, lapply(split(res, list(res$alpha, res$g), drop = TRUE),
+  function(d) data.frame(alpha = d$alpha[1], g = d$g[1], order = fit_order(d, "error"))))
+rownames(slopes) <- NULL
+slopes
+```
+
+```{r figure-style}
+## Common style for the article figures (same layout for fig_exact.pdf and fig_coupled.pdf)
+fig_cols <- c("#2a78d6", "#eb6834", "#1baf7a")   # blue, orange, aqua (colour-blind safe)
+fig_pch  <- c(19, 15, 17)                          # circle, square, triangle
+ref_col  <- "#8a8984"; grid_col <- "#e4e3df"
+log_axis <- function(side, lim) {                  # ticks at powers of ten, labelled 10^k
+  k  <- floor(log10(lim[1])):ceiling(log10(lim[2]))
+  at <- 10^k
+  axis(side, at = at, labels = parse(text = paste0("10^", k)), las = 1,
+       col = "#52514e", col.axis = "#52514e", cex.axis = 0.9)
+  if (side == 1) abline(v = at, col = grid_col, lwd = 0.6) else abline(h = at, col = grid_col, lwd = 0.6)
+}
+panel_frame <- function(xlim, ylim, main, ylab) {
+  plot(NA, xlim = xlim, ylim = ylim, log = "xy", xaxt = "n", yaxt = "n", bty = "l",
+       xlab = "", ylab = "", main = main, font.main = 1, cex.main = 1)
+  log_axis(1, xlim); log_axis(2, ylim)
+  mtext(expression(italic(h)), side = 1, line = 2.3)
+  if (!is.null(ylab)) mtext(ylab, side = 2, line = 2.6)
+}
+alphas_fig <- c(1.2, 1.5, 1.8)
+```
+
+```{r exact-plot, cache = FALSE, fig.width = 7.2, fig.height = 2.5, fig.cap = "Figure 1: Exact weak error of the Euler scheme for the stable Ornstein--Uhlenbeck process, beta = 0.5, three test functions. The dashed line has slope one."}
+plot_exact <- function() {
+  op <- par(mfrow = c(1, 3), mar = c(3.6, 4.2, 1.8, 0.6), family = "serif", cex = 0.8)
+  on.exit(par(op))
+  ylim <- c(2e-5, 8e-2); tests <- c("cos", "sin", "gauss")
+  for (k in seq_along(alphas_fig)) {
+    a <- alphas_fig[k]; d <- subset(res, alpha == a)
+    panel_frame(range(d$h), ylim, bquote(alpha == .(a)),
+                if (k == 1) "weak error" else NULL)
+    sl <- sapply(tests, function(gg) subset(slopes, alpha == a & g == gg)$order)
+    for (j in seq_along(tests)) {
+      dj <- subset(d, g == tests[j])
+      lines(dj$h, dj$error, type = "o", pch = fig_pch[j], col = fig_cols[j], lwd = 1.5, cex = 0.8)
+    }
+    ## reference line of slope one, placed above the data
+    h0 <- max(d$h); e0 <- 1.6 * max(d$error[d$h == h0])
+    lines(range(d$h), e0 * range(d$h) / h0, lty = 2, col = ref_col)
+    labs <- as.expression(list(
+      bquote(cos~x~~"(slope" ~ .(sprintf("%.2f", sl[1])) * ")"),
+      bquote(sin~x~~"(slope" ~ .(sprintf("%.2f", sl[2])) * ")"),
+      bquote(e^{-x^2}~~"(slope" ~ .(sprintf("%.2f", sl[3])) * ")"),
+      "slope 1"))
+    legend("topleft", legend = labs, col = c(fig_cols, ref_col), pch = c(fig_pch, NA),
+           lty = c(1, 1, 1, 2), lwd = c(1.5, 1.5, 1.5, 1), bty = "n", cex = 0.8)
+  }
+}
+plot_exact()                                                   # shown in the report
+pdf("fig_exact.pdf", width = 7.2, height = 2.5); plot_exact(); invisible(dev.off())
+```
+
+# Weak error: multiplicative non-degenerate SDE (coupled Monte Carlo)
+
+We now take an equation that satisfies the assumptions of the theorem:
+smooth, bounded coefficients and a non-degenerate diffusion coefficient,
+$$dX_t = -\sin(X_t)\,dt + \big(1 + \tfrac12\cos(X_{t-})\big)\,dZ_t,\qquad X_0 = 1 .$$
+No closed form is available. Moreover, a naive Monte Carlo comparison with a
+fine reference solution has a statistical error of order $M^{-1/2}$, which
+quickly exceeds the weak error itself, so that slopes fitted on such
+estimates are erratic.
+
+We therefore estimate the **differences between consecutive levels**,
+$$d_N = \mathbb E\big[g(X^N_T) - g(X^{2N}_T)\big],$$
+with both schemes driven by the **same** noise: each coarse increment is the
+sum of two fine increments. The two schemes are then strongly close, so the
+variance of $g(X^N_T)-g(X^{2N}_T)$ is very small. Since
+$d_N = \mathcal E_N(g) - \mathcal E_{2N}(g)$ and $\mathcal E_N(g) = \sum_{j\ge0} d_{2^jN}$
+(telescoping), $\mathcal E_N(g) = C h + o(h)$ if and only if
+$d_N = C h/2 + o(h)$: $d_N$ has the same order as the weak error.
+
+```{r coupled-mc}
+drift <- function(x) -sin(x)
+diffu <- function(x) 1 + 0.5 * cos(x)
+
+## Coupled estimate of d_N = E[g(X^N_T) - g(X^{2N}_T)]; returns mean and standard error
+coupled_diff <- function(N, M, alpha, beta, g, x0 = 1, t1 = 1) {
+  hf <- t1 / (2 * N)                              # fine step; coarse step = 2 * hf
+  xf <- rep(x0, M); xc <- rep(x0, M)
+  for (k in 1:N) {
+    dZ1 <- rstable_strict(M, alpha, beta) * hf^(1 / alpha)
+    dZ2 <- rstable_strict(M, alpha, beta) * hf^(1 / alpha)
+    xf  <- xf + drift(xf) * hf + diffu(xf) * dZ1
+    xf  <- xf + drift(xf) * hf + diffu(xf) * dZ2
+    xc  <- xc + drift(xc) * 2 * hf + diffu(xc) * (dZ1 + dZ2)
+  }
+  d <- g(xc) - g(xf)
+  c(mean = mean(d), se = sd(d) / sqrt(M))
+}
+
+g_gauss <- function(x) exp(-x^2)
+M  <- 2e5                         # value used in the article
+Nc <- 2^(3:7)
+
+mc <- do.call(rbind, lapply(c(1.2, 1.5, 1.8), function(a) {
+  r <- t(sapply(Nc, coupled_diff, M = M, alpha = a, beta = 0.5, g = g_gauss))
+  data.frame(alpha = a, N = Nc, h = 1 / Nc, d = r[, "mean"], se = r[, "se"])
+}))
+## Least squares on log|d_n| against log h, weighted by (d_n / se_n)^2
+fit_order_w <- function(d) unname(coef(lm(log(abs(d$d)) ~ log(d$h), weights = (d$d / d$se)^2))[2])
+mc$order <- unsplit(lapply(split(mc, mc$alpha),
+  function(d) rep(fit_order_w(d), nrow(d))), mc$alpha)
+mc
+```
+
+```{r coupled-plot, cache = FALSE, fig.width = 7.2, fig.height = 2.5, fig.cap = "Figure 2: Coupled estimates |d_n| with 95% confidence intervals for the multiplicative equation, beta = 0.5, g(x) = exp(-x^2), M = 2e5. The dashed line has slope one."}
+plot_coupled <- function() {
+  op <- par(mfrow = c(1, 3), mar = c(3.6, 4.2, 1.8, 0.6), family = "serif", cex = 0.8)
+  on.exit(par(op))
+  ylim <- c(1e-5, 2e-2)
+  for (k in seq_along(alphas_fig)) {
+    a  <- alphas_fig[k]; d <- subset(mc, alpha == a)
+    ad <- abs(d$d)
+    lo <- pmax(ad - 1.96 * d$se, 1.2e-5); hi <- ad + 1.96 * d$se
+    panel_frame(range(d$h), ylim,
+                bquote(alpha == .(a) ~ "(weighted slope" ~ .(sprintf("%.2f", d$order[1])) * ")"),
+                if (k == 1) expression("|" * hat(d)[n] * "|") else NULL)
+    arrows(d$h, lo, d$h, hi, angle = 90, code = 3, length = 0.025, col = ref_col)
+    points(d$h, ad, pch = fig_pch[1], col = fig_cols[1], cex = 0.9)
+    ## reference line of slope one, anchored above the coarsest level
+    h0 <- max(d$h)
+    lines(range(d$h), 1.3 * ad[d$h == h0] * range(d$h) / h0, lty = 2, col = ref_col)
+    legend("bottomright", bty = "n", cex = 0.8,
+           legend = c(expression("|" * hat(d)[n] * "|, 95% CI"), "slope 1"),
+           col = c(fig_cols[1], ref_col), pch = c(fig_pch[1], NA), lty = c(NA, 2))
+  }
+}
+plot_coupled()                                                 # shown in the report
+pdf("fig_coupled.pdf", width = 7.2, height = 2.5); plot_coupled(); invisible(dev.off())
+```
+
+# Exact benchmark with closed-form constant: the Cauchy OU process ($\alpha = 1$)
+
+For $\alpha = 1$ and $\beta = 0$, $Z$ is the standard Cauchy process,
+$\mathbb E\,e^{i\xi Z_t} = e^{-t|\xi|}$, and the scales of Cauchy laws add
+linearly. For the OU equation with the same parameters,
+$$X_T \sim \mathcal C(m_T,\tau_T),\quad m_T = \lambda+(x_0-\lambda)e^{-\theta T},\quad
+\tau_T = \rho\,\frac{1-e^{-\theta T}}{\theta},$$
+$$X^N_T \sim \mathcal C(m_N,\tau_N),\quad m_N = \lambda+(x_0-\lambda)q^N,\quad
+\tau_N = \rho\,\frac{1-q^N}{\theta},\qquad q = 1-\theta h .$$
+For $X\sim\mathcal C(\mu,\tau)$: $\mathbb E\cos X = e^{-\tau}\cos\mu$,
+$\mathbb E\sin X = e^{-\tau}\sin\mu$ and
+$\mathbb E\,[1/(1+X^2)] = (\tau+1)/((\tau+1)^2+\mu^2)$. Everything is in
+closed form, including the leading constant
+$$C_1(g) = \tfrac12\theta T e^{-\theta T}\big(\rho\,\partial_\tau F_g - \theta(x_0-\lambda)\,\partial_\mu F_g\big)(m_T,\tau_T),
+\qquad \mathcal E_N(g) = C_1(g)\,h + O(h^2).$$
+
+```{r cauchy-ou}
+par.c <- list(x0 = 1, theta = 0.3, lambda = 1.2, rho = 1, t1 = 1)
+
+## E g(X) for X ~ Cauchy(mu, tau), and its partial derivatives (d/dtau, d/dmu)
+F_cauchy <- list(
+  cos = function(m, t) exp(-t) * cos(m),
+  sin = function(m, t) exp(-t) * sin(m),
+  lor = function(m, t) (t + 1) / ((t + 1)^2 + m^2))
+dF_cauchy <- list(
+  cos = function(m, t) c(dtau = -exp(-t) * cos(m), dmu = -exp(-t) * sin(m)),
+  sin = function(m, t) c(dtau = -exp(-t) * sin(m), dmu =  exp(-t) * cos(m)),
+  lor = function(m, t) { D <- (t + 1)^2 + m^2
+    c(dtau = (m^2 - (t + 1)^2) / D^2, dmu = -2 * m * (t + 1) / D^2) })
+
+cauchy_laws <- function(N, x0, theta, lambda, rho, t1) {
+  E <- exp(-theta * t1); q <- 1 - theta * t1 / N
+  stopifnot(q > 0)
+  list(mT = lambda + (x0 - lambda) * E,   tT = rho * (1 - E) / theta,
+       mN = lambda + (x0 - lambda) * q^N, tN = rho * (1 - q^N) / theta, E = E)
+}
+
+Nc_c <- 2^(3:9)
+cauchy <- do.call(rbind, lapply(names(F_cauchy), function(g) {
+  err <- sapply(Nc_c, function(N) {
+    L <- do.call(cauchy_laws, c(list(N = N), par.c))
+    F_cauchy[[g]](L$mN, L$tN) - F_cauchy[[g]](L$mT, L$tT)
+  })
+  L  <- do.call(cauchy_laws, c(list(N = 1), par.c))
+  dF <- dF_cauchy[[g]](L$mT, L$tT)
+  C1 <- with(par.c, 0.5 * theta * t1 * L$E * (rho * dF["dtau"] - theta * (x0 - lambda) * dF["dmu"]))
+  data.frame(g = g, N = Nc_c, h = par.c$t1 / Nc_c, error = err,
+             ratio = err * Nc_c / par.c$t1, C1 = unname(C1))
+}))
+## Fitted orders and convergence of error / h to C1
+sapply(split(cauchy, cauchy$g), function(d) fit_order(d, "error"))
+## Table 2 of the article: error / h and C1, in units of 1e-2
+round(100 * xtabs(ratio ~ N + g, data = cauchy), 4)
+round(100 * tapply(cauchy$C1, cauchy$g, function(x) x[1]), 4)
+```
+
+The ratio $\mathcal E_N(g)/h$ converges to $C_1(g)$ with an error of order
+$h$, for the three test functions (Table 2 of the article, in units of
+$10^{-2}$).
