@@ -40,66 +40,6 @@ The analysis provides two complementary approaches to weak error estimation, lea
 
 ---
 
-## Main Contributions
-
-### 1. Weak error estimates with a fixed truncation level
-
-For a fixed truncation level $R>0$, Dynkin's formula yields a first-order weak error estimate:
-
-$$
-\boxed{
-\left|
-\mathbb{E}[g(X_T)]-\mathbb{E}[g(X_T^h)]
-\right|
-\leq Ch.
-}
-$$
-
-The estimate holds with an explicit constant for every $\alpha\in(0,2)$, provided that the solution of the backward Kolmogorov equation belongs to $C_b^{1,4}$.
-
-This result applies to:
-
-- **Additive noise:** for every $\alpha\in(0,2)$.
-- **Non-degenerate multiplicative noise:** when $\alpha\in(1,2)$.
-
-### 2. Weak error estimates with the natural truncation scale
-
-A second approach consists in choosing the truncation level according to the natural scale of the stable increments:
-
-$$
-\boxed{R=h^{1/\alpha}.}
-$$
-
-This choice provides sharp estimates for the truncated moments of the increments.
-
-For $\alpha\in(1,2)$, assuming that the Kolmogorov solution has Hölder regularity $\alpha+\beta$, we obtain the following weak convergence rates:
-
-| Regularity regime | Weak error rate |
-|:---:|:---:|
-| $\beta<\alpha$ | $O(h^{\beta/\alpha})$ |
-| $\beta=\alpha$ | $O(h(1+|\log h|))$ |
-| $\beta>\alpha$ | $O(h)$ |
-
-More precisely,
-
-$$
-\boxed{
-\left|
-\mathbb{E}[g(X_T)]-\mathbb{E}[g(X_T^h)]
-\right|
-\leq C
-\begin{cases}
-h^{\beta/\alpha}, & \beta<\alpha,\\[2mm]
-h(1+|\log h|), & \beta=\alpha,\\[2mm]
-h, & \beta>\alpha.
-\end{cases}
-}
-$$
-
-These estimates highlight the role of the regularity of the Kolmogorov equation in determining the weak convergence rate.
-
----
-
 ## Mathematical Framework
 
 The theoretical analysis is built around the following components:
@@ -221,7 +161,7 @@ If you use this repository in your research, please cite the associated work:
 
 *Weak Convergence of Euler Schemes for Stable-Driven SDEs: A Kolmogorov Equation Approach with Lévy–Itô Truncation.*
 
-Manuscript.
+Manuscript.Preprint 2026
 
 ---
 
@@ -248,8 +188,6 @@ Manuscript.
 ## License
 
 The licensing terms for the source code and associated materials will be specified in the repository.
-
----
 
 ## Acknowledgements
 
