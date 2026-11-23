@@ -182,13 +182,3 @@ Manuscript.Preprint 2026
 ## Keywords
 
 `Euler–Maruyama scheme` · `Weak convergence` · `Stable-driven SDEs` · `Strictly α-stable Lévy processes` · `Backward Kolmogorov equation` · `Lévy–Itô decomposition` · `Weak error analysis`
-
----
-
-## License
-
-The licensing terms for the source code and associated materials will be specified in the repository.
-
-## Acknowledgements
-
-We acknowledge the contributions of the mathematical and scientific communities working on stochastic numerical methods, Lévy processes and the analysis of stochastic differential equations.
